@@ -2,6 +2,7 @@ package secenv
 
 import (
 	"encoding/json"
+	"github.com/pkg/errors"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -20,10 +21,6 @@ var (
 	// Package level structure with simple access via secenv.Get() function
 	global        *SecEnv
 	defaultConfig Config
-
-	ErrNoTokenProvided = NewError("no token provided")
-	ErrNoDataReturned  = NewError("no data returned")
-	ErrWrongValueType  = NewError("wrong value type")
 )
 
 func init() {
@@ -101,7 +98,7 @@ func (se *SecEnv) Get(name string) (string, error) {
 	}
 
 	if se.cfg.token == "" {
-		return "", ErrNoTokenProvided
+		return "", errors.WithStack(&Error{noTokenProvided})
 	}
 
 	value = strings.TrimPrefix(value, prefix)
@@ -124,10 +121,10 @@ func (se *SecEnv) Get(name string) (string, error) {
 		case int:
 			return strconv.FormatInt(int64(secret.(int)), 10), nil
 		default:
-			return "", ErrWrongValueType
+			return "", errors.WithStack(&Error{wrongValueType})
 		}
 	} else {
-		return "", ErrNoDataReturned
+		return "", errors.WithStack(&Error{noDataReturned})
 	}
 }
 
@@ -135,7 +132,7 @@ func (se *SecEnv) Get(name string) (string, error) {
 func (se *SecEnv) request(verb, path string, body io.Reader) (*http.Response, error) {
 	request, err := http.NewRequest(verb, se.cfg.addr+path, body)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 
 	if strings.HasPrefix(path, "/v1/secret") {
@@ -144,7 +141,7 @@ func (se *SecEnv) request(verb, path string, body io.Reader) (*http.Response, er
 
 	response, err := se.cfg.client.Do(request)
 	if err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 
 	return response, nil
@@ -154,12 +151,12 @@ func (se *SecEnv) request(verb, path string, body io.Reader) (*http.Response, er
 func (se *SecEnv) parse(response *http.Response, secret *Secret) error {
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 	defer response.Body.Close()
 
 	if err = json.Unmarshal(body, secret); err != nil {
-		return err
+		return errors.WithStack(err)
 	}
 
 	return nil

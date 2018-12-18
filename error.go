@@ -1,11 +1,13 @@
 package secenv
 
+const (
+	noTokenProvided = "no token provided"
+	wrongValueType  = "wrong value type"
+	noDataReturned  = "no data returned"
+)
+
 type Error struct {
 	msg string
-}
-
-func NewError(msg string) *Error {
-	return &Error{msg: msg}
 }
 
 func (e *Error) Error() string {

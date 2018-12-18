@@ -3,6 +3,7 @@ package secenv
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/pkg/errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -97,9 +98,9 @@ func TestSecEnv_GetNoTokenProvidedError(t *testing.T) {
 		t.Error("expected secenv error, got <nil>")
 	}
 
-	switch err.(type) {
+	switch err := errors.Cause(err).(type) {
 	case *Error:
-		if err.(*Error).msg != "no token provided" {
+		if err.msg != noTokenProvided {
 			t.Errorf("expected secenv error, got error %#v", err)
 		}
 	default:
@@ -124,7 +125,7 @@ func TestSecEnv_GetUrlError(t *testing.T) {
 		t.Error("expected url error, got <nil>")
 	}
 
-	switch err.(type) {
+	switch errors.Cause(err).(type) {
 	case *url.Error:
 		// ok
 	default:
@@ -152,7 +153,7 @@ func TestSecEnv_GetResponseUnmarshalError(t *testing.T) {
 		t.Error("expected json syntax error, got <nil>")
 	}
 
-	switch err.(type) {
+	switch errors.Cause(err).(type) {
 	case *json.SyntaxError:
 		// ok
 	default:
@@ -180,9 +181,9 @@ func TestSecEnv_GetNoDataProvidedError(t *testing.T) {
 		t.Error("expected secenv error, got <nil>")
 	}
 
-	switch err.(type) {
+	switch err := errors.Cause(err).(type) {
 	case *Error:
-		if err.(*Error).msg != "no data returned" {
+		if err.msg != noDataReturned {
 			t.Errorf("expected secenv error, got error %#v", err)
 		}
 	default:
