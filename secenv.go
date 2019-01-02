@@ -1,6 +1,7 @@
 package secenv
 
 import (
+	"bytes"
 	"encoding/json"
 	"github.com/pkg/errors"
 	"io"
@@ -10,11 +11,15 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
 	prefix = "VAULT:"
+
+	authKubernetes      = "kubernetes"
+	kubernetesTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 )
 
 var (
@@ -25,32 +30,41 @@ var (
 
 func init() {
 	defaultConfig = Config{
-		addr:  os.Getenv("VAULT_ADDR"),
-		token: os.Getenv("VAULT_TOKEN"),
+		service: os.Getenv("SERVICE_NAME"),
+		addr:    os.Getenv("VAULT_ADDR"),
+		token:   os.Getenv("VAULT_TOKEN"),
+		auth: &Auth{
+			mu:        &sync.Mutex{},
+			method:    os.Getenv("VAULT_AUTH"),
+			tokenPath: "",
+			expireAt:  time.Now(),
+		},
 		client: &http.Client{
 			Timeout: 250 * time.Millisecond,
 		},
+	}
+
+	if defaultConfig.auth.method == authKubernetes {
+		defaultConfig.auth.tokenPath = kubernetesTokenPath
 	}
 
 	global = NewSecEnv(&defaultConfig)
 }
 
 type Secret struct {
-	// The request ID that generated this response
-	RequestID string `json:"request_id"`
-
-	LeaseID       string `json:"lease_id"`
-	LeaseDuration int    `json:"lease_duration"`
-	Renewable     bool   `json:"renewable"`
-
 	// Data is the actual contents of the secret. The format of the data
 	// is arbitrary and up to the secret backend.
 	Data map[string]interface{} `json:"data"`
 
-	// Warnings contains any warnings related to the operation. These
-	// are not issues that caused the command to fail, but that the
-	// client should be aware of.
-	Warnings []string `json:"warnings"`
+	// Auth, if non-nil, means that there was authentication information
+	// attached to this response.
+	Auth *SecretAuth `json:"auth,omitempty"`
+}
+
+// SecretAuth is the structure containing auth information if we have it.
+type SecretAuth struct {
+	ClientToken   string `json:"client_token"`
+	LeaseDuration int    `json:"lease_duration"`
 }
 
 type SecEnv struct {
@@ -58,9 +72,23 @@ type SecEnv struct {
 }
 
 type Config struct {
-	addr   string
-	token  string
-	client *http.Client
+	service string
+	addr    string
+	token   string
+	auth    *Auth
+	client  *http.Client
+}
+
+type Auth struct {
+	mu        *sync.Mutex
+	method    string
+	tokenPath string
+	expireAt  time.Time
+}
+
+type LoginRequest struct {
+	Role string `json:"role"`
+	JWT  string `json:"jwt"`
 }
 
 // SecEnv constructor
@@ -69,12 +97,20 @@ func NewSecEnv(cfg *Config) *SecEnv {
 		cfg = &Config{}
 	}
 
+	if cfg.service == "" {
+		cfg.service = defaultConfig.service
+	}
+
 	if cfg.addr == "" {
 		cfg.addr = defaultConfig.addr
 	}
 
 	if cfg.token == "" {
 		cfg.token = defaultConfig.token
+	}
+
+	if cfg.auth == nil {
+		cfg.auth = defaultConfig.auth
 	}
 
 	if cfg.client == nil {
@@ -95,6 +131,13 @@ func (se *SecEnv) Get(name string) (string, error) {
 
 	if !strings.HasPrefix(value, prefix) {
 		return value, nil
+	}
+
+	if se.cfg.auth.method == authKubernetes {
+		err := se.auth()
+		if err != nil {
+			return "", err
+		}
 	}
 
 	if se.cfg.token == "" {
@@ -145,6 +188,47 @@ func (se *SecEnv) request(verb, path string, body io.Reader) (*http.Response, er
 	}
 
 	return response, nil
+}
+
+// Authentication with Kubernetes token
+func (se *SecEnv) auth() error {
+	se.cfg.auth.mu.Lock()
+	defer se.cfg.auth.mu.Unlock()
+
+	now := time.Now()
+
+	if se.cfg.auth.expireAt.Before(now) || se.cfg.auth.expireAt.Equal(now) {
+		jwt, err := ioutil.ReadFile(se.cfg.auth.tokenPath)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+
+		login := LoginRequest{
+			Role: se.cfg.service,
+			JWT:  string(jwt),
+		}
+
+		loginJson, err := json.Marshal(login)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+
+		response, err := se.request("PUT", "/v1/auth/kubernetes/login", bytes.NewReader(loginJson))
+		if err != nil {
+			return err
+		}
+
+		var secret Secret
+		err = se.parse(response, &secret)
+		if err != nil {
+			return err
+		}
+
+		se.cfg.token = secret.Auth.ClientToken
+		se.cfg.auth.expireAt = now.Add(time.Duration(secret.Auth.LeaseDuration) * time.Second)
+	}
+
+	return nil
 }
 
 // Response parsing into Secret structure
