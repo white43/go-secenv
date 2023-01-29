@@ -53,7 +53,7 @@ func init() {
 type Secret struct {
 	// Data is the actual contents of the secret. The format of the data
 	// is arbitrary and up to the secret backend.
-	Data map[string]interface{} `json:"data"`
+	Data map[string]map[string]any `json:"data"`
 
 	// Auth, if non-nil, means that there was authentication information
 	// attached to this response.
@@ -156,7 +156,14 @@ func (se *SecEnv) Get(name string) (string, error) {
 		return "", fmt.Errorf("secenv(%s): %w", name, err)
 	}
 
-	if secret, ok := secret.Data[field]; ok {
+	var innerData map[string]any
+	var ok bool
+
+	if innerData, ok = secret.Data["data"]; !ok {
+		return "", fmt.Errorf("no second level data was found")
+	}
+
+	if secret, ok := innerData[field]; ok {
 		switch secret.(type) {
 		case string:
 			return secret.(string), nil

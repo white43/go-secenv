@@ -41,7 +41,7 @@ func TestSecEnv_Get(t *testing.T) {
 func TestSecEnv_GetSecretValue(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		//noinspection GoUnhandledErrorResult
-		fmt.Fprintf(w, `{"data":{"value":"%s"}}`, expected)
+		fmt.Fprintf(w, `{"data":{"data":{"value":"%s"}}}`, expected)
 	}))
 	defer ts.Close()
 
@@ -65,7 +65,7 @@ func TestSecEnv_GetSecretValue(t *testing.T) {
 func TestSecEnv_GetSecretValueCustomField(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		//noinspection GoUnhandledErrorResult
-		fmt.Fprintf(w, `{"data":{"field":"%s"}}`, expected)
+		fmt.Fprintf(w, `{"data":{"data":{"field":"%s"}}}`, expected)
 	}))
 	defer ts.Close()
 
@@ -157,7 +157,7 @@ func TestSecEnv_GetResponseUnmarshalError(t *testing.T) {
 func TestSecEnv_GetNoDataProvidedError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		//noinspection GoUnhandledErrorResult
-		fmt.Fprintln(w, `{"data":{}}`)
+		fmt.Fprintln(w, `{"data":{"data":{}}}`)
 	}))
 	defer ts.Close()
 
@@ -209,7 +209,7 @@ func TestSecEnv_GetSecretValueWithKubernetesAuthentication(t *testing.T) {
 			fmt.Fprint(w, `{"auth":{"client_token":"test","lease_duration":1}}`)
 		case "/v1/secret/data/test":
 			//noinspection GoUnhandledErrorResult
-			fmt.Fprintf(w, `{"data":{"value":"%s"}}`, expected)
+			fmt.Fprintf(w, `{"data":{"data":{"value":"%s"}}}`, expected)
 		}
 	}))
 	defer ts.Close()
