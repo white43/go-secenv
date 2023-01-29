@@ -3,9 +3,8 @@ package secenv
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/pkg/errors"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -136,25 +135,25 @@ func (se *SecEnv) Get(name string) (string, error) {
 	if se.cfg.auth.method == authKubernetes {
 		err := se.auth()
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("secenv(%s): %w", name, err)
 		}
 	}
 
 	if se.cfg.token == "" {
-		return "", errors.WithStack(&Error{noTokenProvided})
+		return "", fmt.Errorf("no token provided")
 	}
 
 	value = strings.TrimPrefix(value, prefix)
 	path, field := splitName(value)
 
-	response, err := se.request("GET", filepath.Join("/v1/secret", path), nil)
+	response, err := se.request("GET", filepath.Join("/v1/secret/data", path), nil)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("secenv(%s): %w", name, err)
 	}
 
 	var secret Secret
 	if err = se.parse(response, &secret); err != nil {
-		return "", err
+		return "", fmt.Errorf("secenv(%s): %w", name, err)
 	}
 
 	if secret, ok := secret.Data[field]; ok {
@@ -164,10 +163,10 @@ func (se *SecEnv) Get(name string) (string, error) {
 		case int:
 			return strconv.FormatInt(int64(secret.(int)), 10), nil
 		default:
-			return "", errors.WithStack(&Error{wrongValueType})
+			return "", fmt.Errorf("secenv(%s): %s", name, "wrong value type")
 		}
 	} else {
-		return "", errors.WithStack(&Error{noDataReturned})
+		return "", fmt.Errorf("secenv(%s): %s", name, "no data returned")
 	}
 }
 
@@ -175,7 +174,7 @@ func (se *SecEnv) Get(name string) (string, error) {
 func (se *SecEnv) request(verb, path string, body io.Reader) (*http.Response, error) {
 	request, err := http.NewRequest(verb, se.cfg.addr+path, body)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, fmt.Errorf("building request error: %w", err)
 	}
 
 	if strings.HasPrefix(path, "/v1/secret") {
@@ -184,7 +183,7 @@ func (se *SecEnv) request(verb, path string, body io.Reader) (*http.Response, er
 
 	response, err := se.cfg.client.Do(request)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, fmt.Errorf("doing remote request error: %w", err)
 	}
 
 	return response, nil
@@ -198,9 +197,9 @@ func (se *SecEnv) auth() error {
 	now := time.Now()
 
 	if se.cfg.auth.expireAt.Before(now) || se.cfg.auth.expireAt.Equal(now) {
-		jwt, err := ioutil.ReadFile(se.cfg.auth.tokenPath)
+		jwt, err := os.ReadFile(se.cfg.auth.tokenPath)
 		if err != nil {
-			return errors.WithStack(err)
+			return fmt.Errorf("read token file error: %w", err)
 		}
 
 		login := LoginRequest{
@@ -210,18 +209,18 @@ func (se *SecEnv) auth() error {
 
 		loginJson, err := json.Marshal(login)
 		if err != nil {
-			return errors.WithStack(err)
+			return fmt.Errorf("marshalling json error: %w", err)
 		}
 
 		response, err := se.request("PUT", "/v1/auth/kubernetes/login", bytes.NewReader(loginJson))
 		if err != nil {
-			return err
+			return fmt.Errorf("kubernetes auth request error: %w", err)
 		}
 
 		var secret Secret
 		err = se.parse(response, &secret)
 		if err != nil {
-			return err
+			return fmt.Errorf("parsing kubernetes auth response error: %w", err)
 		}
 
 		se.cfg.token = secret.Auth.ClientToken
@@ -233,14 +232,14 @@ func (se *SecEnv) auth() error {
 
 // Response parsing into Secret structure
 func (se *SecEnv) parse(response *http.Response, secret *Secret) error {
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		return errors.WithStack(err)
+		return fmt.Errorf("reading body error: %w", err)
 	}
 	defer response.Body.Close()
 
 	if err = json.Unmarshal(body, secret); err != nil {
-		return errors.WithStack(err)
+		return fmt.Errorf("unmarshalling error: %w", err)
 	}
 
 	return nil

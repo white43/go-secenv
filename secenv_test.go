@@ -1,14 +1,11 @@
 package secenv
 
 import (
-	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -104,13 +101,8 @@ func TestSecEnv_GetNoTokenProvidedError(t *testing.T) {
 		t.Error("expected secenv error, got <nil>")
 	}
 
-	switch err := errors.Cause(err).(type) {
-	case *Error:
-		if err.msg != noTokenProvided {
-			t.Errorf("expected secenv error, got error %#v", err)
-		}
-	default:
-		t.Errorf("expected secenv error, got error %#v", err)
+	if !strings.Contains(err.Error(), "no token provided") {
+		t.Errorf("expected 'no token provided' error, got %#v", err)
 	}
 }
 
@@ -131,11 +123,8 @@ func TestSecEnv_GetUrlError(t *testing.T) {
 		t.Error("expected url error, got <nil>")
 	}
 
-	switch errors.Cause(err).(type) {
-	case *url.Error:
-		// ok
-	default:
-		t.Errorf("expected url error, got error %#v", err)
+	if !strings.Contains(err.Error(), "doing remote request error") {
+		t.Errorf("expected 'doing remote request error', got %#v", err)
 	}
 }
 
@@ -159,11 +148,8 @@ func TestSecEnv_GetResponseUnmarshalError(t *testing.T) {
 		t.Error("expected json syntax error, got <nil>")
 	}
 
-	switch errors.Cause(err).(type) {
-	case *json.SyntaxError:
-		// ok
-	default:
-		t.Errorf("expected json syntax error, got error %#v", err)
+	if !strings.Contains(err.Error(), "unmarshalling error") {
+		t.Errorf("expected 'unmarshalling error', got %#v", err)
 	}
 }
 
@@ -187,13 +173,8 @@ func TestSecEnv_GetNoDataProvidedError(t *testing.T) {
 		t.Error("expected secenv error, got <nil>")
 	}
 
-	switch err := errors.Cause(err).(type) {
-	case *Error:
-		if err.msg != noDataReturned {
-			t.Errorf("expected secenv error, got error %#v", err)
-		}
-	default:
-		t.Errorf("expected secenv error, got error %#v", err)
+	if !strings.Contains(err.Error(), "no data returned") {
+		t.Errorf("expected 'no data returned' error, got %#v", err)
 	}
 }
 
@@ -214,11 +195,8 @@ func TestSecEnv_GetErrCantReadTokenFile(t *testing.T) {
 		t.Error("expected *os.PathError error, got <nil>")
 	}
 
-	switch errors.Cause(err).(type) {
-	case *os.PathError:
-		// ok
-	default:
-		t.Errorf("expected *os.PathError, got %+v", err)
+	if !strings.Contains(err.Error(), "no such file or directory") {
+		t.Errorf("expected 'no such file or directory' error, got %#v", err)
 	}
 }
 
@@ -229,7 +207,7 @@ func TestSecEnv_GetSecretValueWithKubernetesAuthentication(t *testing.T) {
 		case "/v1/auth/kubernetes/login":
 			//noinspection GoUnhandledErrorResult
 			fmt.Fprint(w, `{"auth":{"client_token":"test","lease_duration":1}}`)
-		case "/v1/secret/test":
+		case "/v1/secret/data/test":
 			//noinspection GoUnhandledErrorResult
 			fmt.Fprintf(w, `{"data":{"value":"%s"}}`, expected)
 		}
@@ -237,11 +215,11 @@ func TestSecEnv_GetSecretValueWithKubernetesAuthentication(t *testing.T) {
 	defer ts.Close()
 
 	// Тестовый файл с токеном
-	file, err := ioutil.TempFile("", "secenv-testing.*.tmp")
+	file, err := os.CreateTemp("", "secenv-testing.*.tmp")
 	if err != nil {
 		t.Error(err)
 	}
-	defer os.Remove(file.Name())
+	defer os.RemoveAll(file.Name())
 
 	// Записывает токен в тестовый файл
 	_, err = file.WriteString("JWT")
